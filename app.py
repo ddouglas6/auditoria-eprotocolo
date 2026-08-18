@@ -29,7 +29,7 @@ chaves_padrao = {
     "usr": "", "pwd": "", "gemini_key": "", "cb_ia_risco": True, "cb_resumo_ia": False,
     "txt_palavra_ia": "Mandado", "dd_prioridade_ia": "🔴 ALTO", "filtro_dias": 0, "alerta_dias": 30,
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
-    "cb_word": False, "ordem_relatorio": "Decrescente (Mais antigos primeiro)",
+    "cb_word": False, "ordem_relatorio": "Decrescente", # <-- CORRIGIDO AQUI
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False
 }
 for k, v in chaves_padrao.items():
@@ -147,6 +147,7 @@ if st.session_state.fase_app == "inicio":
             st.checkbox("Gerar Relatório em PDF", key="cb_pdf")
             st.checkbox("Gerar Planilha em Excel", key="cb_excel")
             st.checkbox("Gerar Ofício em Word", key="cb_word")
+            # <-- AS OPÇÕES AGORA SÃO APENAS "Decrescente" e "Crescente"
             st.radio("Organização Cronológica:", ["Decrescente", "Crescente"], key="ordem_relatorio")
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -317,7 +318,7 @@ elif st.session_state.fase_app == "processando":
                         if driver.current_window_handle != janela_principal: driver.switch_to.window(janela_principal)
                         driver.execute_script("arguments[0].click();", wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@value='Voltar'] | //button[contains(text(), 'Voltar')]"))))
                     except: driver.execute_script("window.history.go(-1)")
-                    time.sleep(2); gc.collect() # OTIMIZAÇÃO: Limpa RAM a cada ciclo
+                    time.sleep(2); gc.collect() 
                     
         escreve_log("✨ Finalizando...", 100)
         
@@ -390,7 +391,7 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_word, "Auditoria_eProtocolo.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-        st.session_state.downloads_feitos = True # Garante que só baixe automático na primeira vez que a tela carrega
+        st.session_state.downloads_feitos = True # Garante que só baixe automático na primeira vez
 
     else:
         st.warning("Nenhum processo atendeu aos critérios estabelecidos.")
@@ -402,7 +403,7 @@ elif st.session_state.fase_app == "concluido":
         st.rerun()
 
 elif st.session_state.fase_app == "erro":
-    st.error("❌ Ocorreu uma instabilidade no servidor (provavelmente falta de memória) e a coleta foi interrompida.")
+    st.error("❌ Ocorreu uma instabilidade no servidor e a coleta foi interrompida.")
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
         st.rerun()
