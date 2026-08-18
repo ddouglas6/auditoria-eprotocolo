@@ -20,7 +20,7 @@ import docx
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- 1. CONFIGURAÇÃO DA PÁGINA E MEMÓRIA (Deve vir primeiro para não travar os botões) ---
+# --- 1. CONFIGURAÇÃO DA PÁGINA E MEMÓRIA ---
 st.set_page_config(page_title="Auditoria e-Protocolo", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
 
 chaves_padrao = {
@@ -144,7 +144,6 @@ with st.sidebar:
         st.text_input("Palavra Gatilho:", key="txt_palavra_ia")
         st.selectbox("Prioridade:", ["🔴 ALTO", "🟡 MÉDIO", "🟢 BAIXO"], key="dd_prioridade_ia")
 
-
 # --- 5. TELA CENTRAL: FILTROS E BOTÃO DE AÇÃO ---
 st.markdown("### ⚙️ Painel de Configurações")
 with st.container(border=True):
@@ -172,6 +171,7 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
         st.error("⚠️ Atenção: Preencha suas Credenciais no menu lateral.")
         st.stop()
 
+    # --- INICIALIZAÇÃO DA INTERFACE DE LOGS ---
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0)
     log_placeholder = st.empty()
@@ -193,7 +193,7 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
         "download.prompt_for_download": False,
         "plugins.always_open_pdf_externally": True,
         "pdfjs.disabled": True,
-        "profile.managed_default_content_settings.images": 2 
+        "profile.managed_default_content_settings.images": 2 # Bloqueia imagens para economizar memória
     }
     
     options = Options()
@@ -209,6 +209,13 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
     
     try:
         driver = webdriver.Chrome(options=options)
+        
+        # COMANDO DE FORÇA MAIOR: Obriga o Chrome Invisível a aceitar downloads!
+        driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+            'behavior': 'allow',
+            'downloadPath': download_dir
+        })
+        
         driver.set_page_load_timeout(60)
         wait = WebDriverWait(driver, 45)
         
@@ -314,7 +321,7 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
                                 
                                 arquivo_baixado = None
                                 escreve_log(f"      ⏳ Aguardando a nuvem processar o arquivo...")
-                                for _ in range(45):
+                                for _ in range(90):  # TEMPO DOBRADO (90 SEGUNDOS) PARA ARQUIVOS GRANDES
                                     time.sleep(1)
                                     arquivos = os.listdir(download_dir)
                                     arquivos_prontos = [f for f in arquivos if not f.endswith('.crdownload') and not f.endswith('.tmp')]
@@ -346,7 +353,7 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
                                 while len(driver.window_handles) > 1: driver.switch_to.window(driver.window_handles[-1]); driver.close()
                                 driver.switch_to.window(janela_principal)
                         else:
-                            # Se a opção de resumo IA não foi marcada, o robô pula e ignora o botão de download
+                            # Pula e ignora leitura IA se não estiver marcado
                             pass 
 
                         if st.session_state.cb_historico:
