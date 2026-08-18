@@ -112,6 +112,11 @@ with st.sidebar:
         try:
             dados_carregados = json.load(arquivo_perfil)
             for k, v in dados_carregados.items():
+                # VACINA CONTRA O ERRO DO RÁDIO ANTIGO
+                if k == "ordem_relatorio":
+                    if "antigos" in str(v).lower() or "Decrescente" in str(v): v = "Decrescente"
+                    else: v = "Crescente"
+                
                 if k in st.session_state: st.session_state[k] = v
             st.success("Perfil carregado!")
         except: st.error("Erro JSON.")
@@ -151,8 +156,6 @@ if st.session_state.fase_app == "inicio":
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True):
-        
-        # VALIDAÇÃO INTELIGENTE (Mostra exatamente o que faltou preencher)
         usr_val = st.session_state.get('usr', '').strip()
         pwd_val = st.session_state.get('pwd', '').strip()
         
@@ -160,9 +163,8 @@ if st.session_state.fase_app == "inicio":
             faltando = []
             if not usr_val: faltando.append("CPF")
             if not pwd_val: faltando.append("Senha")
-            
-            st.error(f"⚠️ Atenção: Preencha o(a) **{' e '.join(faltando)}** no menu lateral esquerdo.")
-            st.info("📱 **Dica de Celular:** Após digitar sua senha no menu, toque no botão 'Concluído/Return' do seu teclado ou toque em qualquer lugar vazio da tela para confirmar, antes de apertar Iniciar.")
+            st.error(f"⚠️ Atenção: Preencha o(a) {' e '.join(faltando)} no menu lateral esquerdo.")
+            st.info("📱 Dica de Celular: Após digitar a senha, toque em 'Concluído/Return' no teclado antes de iniciar.")
             st.stop()
             
         st.session_state.downloads_feitos = False
@@ -356,7 +358,6 @@ elif st.session_state.fase_app == "concluido":
         st.markdown("### 📥 Seus Relatórios")
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
-        # GERAR EXCEL
         if st.session_state.cb_excel:
             output_excel = io.BytesIO()
             df.to_excel(output_excel, index=False)
@@ -365,7 +366,6 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_excel, "Auditoria_eProtocolo.xlsx", "application/vnd.ms-excel")
         
-        # GERAR PDF
         if st.session_state.cb_pdf:
             pdf = FPDF(); pdf.add_page(); pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, txt="Auditoria E-protocolo", ln=True, align='C')
             locais = {}
@@ -385,7 +385,6 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_pdf, "Auditoria_eProtocolo.pdf", "application/pdf")
         
-        # GERAR WORD
         if st.session_state.cb_word:
             doc = docx.Document(); doc.add_heading('Auditoria E-protocolo', 0).alignment = 1 
             for _, p in df.iterrows():
