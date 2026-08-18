@@ -30,13 +30,14 @@ chaves_padrao = {
     "txt_palavra_ia": "Mandado", "dd_prioridade_ia": "🔴 ALTO", "filtro_dias": 0, "alerta_dias": 30,
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
-    "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False
+    "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
+    "ultimo_erro": "" # <-- Adicionamos um gravador de erros reais
 }
 for k, v in chaves_padrao.items():
     if k not in st.session_state: 
         st.session_state[k] = v
 
-# --- 2. TRUQUE DO DOWNLOAD AUTOMÁTICO (Estilo Colab) ---
+# --- 2. TRUQUE DO DOWNLOAD AUTOMÁTICO ---
 def forcar_download_automatico(dados_bytes, nome_arquivo, tipo_mime):
     b64 = base64.b64encode(dados_bytes).decode()
     id_link = re.sub(r'\W+', '', nome_arquivo)
@@ -112,15 +113,13 @@ with st.sidebar:
         try:
             dados_carregados = json.load(arquivo_perfil)
             for k, v in dados_carregados.items():
-                # VACINA CONTRA O ERRO DO RÁDIO ANTIGO
                 if k == "ordem_relatorio":
                     if "antigos" in str(v).lower() or "Decrescente" in str(v): v = "Decrescente"
                     else: v = "Crescente"
-                
                 if k in st.session_state: st.session_state[k] = v
             st.success("Perfil carregado!")
         except: st.error("Erro JSON.")
-    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos"]}, indent=4)
+    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro"]}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
     st.divider(); st.markdown("### 🔐 Credenciais")
     st.text_input("CPF do Usuário:", key="usr")
@@ -160,14 +159,11 @@ if st.session_state.fase_app == "inicio":
         pwd_val = st.session_state.get('pwd', '').strip()
         
         if not usr_val or not pwd_val:
-            faltando = []
-            if not usr_val: faltando.append("CPF")
-            if not pwd_val: faltando.append("Senha")
-            st.error(f"⚠️ Atenção: Preencha o(a) {' e '.join(faltando)} no menu lateral esquerdo.")
-            st.info("📱 Dica de Celular: Após digitar a senha, toque em 'Concluído/Return' no teclado antes de iniciar.")
+            st.error("⚠️ Atenção: Preencha seu CPF e Senha no menu lateral esquerdo.")
             st.stop()
             
         st.session_state.downloads_feitos = False
+        st.session_state.ultimo_erro = ""
         st.session_state.fase_app = "processando"
         st.rerun()
 
@@ -193,6 +189,8 @@ elif st.session_state.fase_app == "processando":
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-extensions')
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir, "download.prompt_for_download": False,
         "plugins.always_open_pdf_externally": True, "pdfjs.disabled": True,
@@ -231,6 +229,10 @@ elif st.session_state.fase_app == "processando":
             try: driver.get("https://www.eprotocolo.pr.gov.br/spiweb/telaInicial.do?action=iniciarProcesso")
             except: driver.execute_script("window.stop();")
             time.sleep(5)
+            
+        # Se depois de forçar o GET ainda estiver na tela de login, significa erro de senha!
+        if "login" in driver.current_url.lower() or "centralautenticacao" in driver.current_url.lower():
+            raise Exception("O portal recusou o acesso. Verifique se o CPF e a Senha estão corretos.")
         
         escreve_log("📍 Mapeando 'Protocolos no Local'...", 25)
         driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.XPATH, "//a[@href='#div_protocolos' or contains(text(), 'Protocolos no Local')]"))))
@@ -334,7 +336,9 @@ elif st.session_state.fase_app == "processando":
                     
         escreve_log("✨ Finalizando...", 100)
         
-    except Exception as e: erro_fatal = str(e)
+    except Exception as e: 
+        erro_fatal = str(e)
+        st.session_state.ultimo_erro = erro_fatal
     finally:
         try: driver.quit() 
         except: pass
@@ -345,7 +349,6 @@ elif st.session_state.fase_app == "processando":
 
 elif st.session_state.fase_app == "concluido":
     st.success("🎉 Processamento concluído com sucesso!")
-    
     df = pd.DataFrame(st.session_state.dados_auditoria)
     
     if len(df) > 0:
@@ -398,7 +401,6 @@ elif st.session_state.fase_app == "concluido":
                 forcar_download_automatico(dados_word, "Auditoria_eProtocolo.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
         st.session_state.downloads_feitos = True 
-
     else:
         st.warning("Nenhum processo atendeu aos critérios estabelecidos.")
 
@@ -409,7 +411,9 @@ elif st.session_state.fase_app == "concluido":
         st.rerun()
 
 elif st.session_state.fase_app == "erro":
-    st.error("❌ Ocorreu uma instabilidade no servidor (provavelmente falta de memória) e a coleta foi interrompida.")
+    st.error("❌ A auditoria foi interrompida prematuramente.")
+    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento. Se estiver escrito 'Message: ' em branco, significa que o robô não conseguiu logar ou o e-Protocolo demorou mais de 45 segundos para abrir.")
+    st.code(st.session_state.ultimo_erro, language="text")
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
         st.rerun()
