@@ -31,7 +31,7 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": "" # <-- Adicionamos um gravador de erros reais
+    "ultimo_erro": "", "debug_img": "" # <-- Adicionamos a "câmera" do robô
 }
 for k, v in chaves_padrao.items():
     if k not in st.session_state: 
@@ -119,7 +119,7 @@ with st.sidebar:
                 if k in st.session_state: st.session_state[k] = v
             st.success("Perfil carregado!")
         except: st.error("Erro JSON.")
-    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro"]}, indent=4)
+    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "debug_img"]}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
     st.divider(); st.markdown("### 🔐 Credenciais")
     st.text_input("CPF do Usuário:", key="usr")
@@ -164,6 +164,7 @@ if st.session_state.fase_app == "inicio":
             
         st.session_state.downloads_feitos = False
         st.session_state.ultimo_erro = ""
+        st.session_state.debug_img = ""
         st.session_state.fase_app = "processando"
         st.rerun()
 
@@ -218,9 +219,12 @@ elif st.session_state.fase_app == "processando":
         usr_f.clear(); usr_f.send_keys(st.session_state.usr)
         pwd_f = driver.find_element(By.ID, "password")
         pwd_f.clear(); pwd_f.send_keys(st.session_state.pwd)
+        
+        # O TOQUE HUMANO: Pausa para o site registrar que o texto foi digitado
+        time.sleep(1.5) 
         driver.execute_script("arguments[0].click();", driver.find_element(By.ID, "btn-central-acessar"))
         
-        escreve_log("⏳ Negociando Acesso...", 20)
+        escreve_log("⏳ Negociando Acesso com o Estado...", 20)
         for _ in range(25):
             if "telaInicial" in driver.current_url or "iniciarProcesso" in driver.current_url: break
             time.sleep(1)
@@ -230,9 +234,12 @@ elif st.session_state.fase_app == "processando":
             except: driver.execute_script("window.stop();")
             time.sleep(5)
             
-        # Se depois de forçar o GET ainda estiver na tela de login, significa erro de senha!
+        # A CÂMERA DO ROBÔ: Tira foto se ainda estiver preso na tela de login
         if "login" in driver.current_url.lower() or "centralautenticacao" in driver.current_url.lower():
-            raise Exception("O portal recusou o acesso. Verifique se o CPF e a Senha estão corretos.")
+            foto_caminho = "/tmp/debug_login.png"
+            driver.save_screenshot(foto_caminho)
+            st.session_state.debug_img = foto_caminho
+            raise Exception("O portal recusou o acesso ou exigiu verificação humana. Verifique a imagem de diagnóstico abaixo.")
         
         escreve_log("📍 Mapeando 'Protocolos no Local'...", 25)
         driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.XPATH, "//a[@href='#div_protocolos' or contains(text(), 'Protocolos no Local')]"))))
@@ -412,8 +419,15 @@ elif st.session_state.fase_app == "concluido":
 
 elif st.session_state.fase_app == "erro":
     st.error("❌ A auditoria foi interrompida prematuramente.")
-    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento. Se estiver escrito 'Message: ' em branco, significa que o robô não conseguiu logar ou o e-Protocolo demorou mais de 45 segundos para abrir.")
+    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
     st.code(st.session_state.ultimo_erro, language="text")
+    
+    # MOSTRA A FOTO DO ERRO (Se existir)
+    foto_debug = st.session_state.get("debug_img", "")
+    if foto_debug and os.path.exists(foto_debug):
+        st.warning("📸 O robô tirou uma foto da tela no momento exato em que foi bloqueado:")
+        st.image(foto_debug, caption="Visão do Robô no momento do travamento")
+        
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
         st.rerun()
