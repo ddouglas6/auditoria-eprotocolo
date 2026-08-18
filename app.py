@@ -31,7 +31,7 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": "", "debug_img": "" # <-- Adicionamos a "câmera" do robô
+    "ultimo_erro": "", "debug_img": ""
 }
 for k, v in chaves_padrao.items():
     if k not in st.session_state: 
@@ -184,6 +184,7 @@ elif st.session_state.fase_app == "processando":
     download_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads_eprotocolo"))
     os.makedirs(download_dir, exist_ok=True)
     
+    # NOVAS MÁSCARAS ANTI-BOT APLICADAS AQUI
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -191,11 +192,19 @@ elif st.session_state.fase_app == "processando":
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--disable-software-rasterizer')
-    options.add_argument('--disable-extensions')
+    
+    # Esconde a flag de automação do Selenium
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    # Falsifica um navegador Windows de usuário real
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir, "download.prompt_for_download": False,
-        "plugins.always_open_pdf_externally": True, "pdfjs.disabled": True,
-        "profile.managed_default_content_settings.images": 2 
+        "plugins.always_open_pdf_externally": True, "pdfjs.disabled": True
+        # REMOVIDO o bloqueio de imagens para não acionar o alerta do firewall
     })
     options.binary_location = "/usr/bin/chromium"
     
@@ -204,23 +213,34 @@ elif st.session_state.fase_app == "processando":
     
     try:
         driver = webdriver.Chrome(options=options)
+        
+        # Injeta um script extra para apagar rastros digitais de bot na página
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': download_dir})
+        
         wait = WebDriverWait(driver, 45)
         
-        escreve_log("🚪 Acessando o portal...", 10)
+        escreve_log("🚪 Acessando o portal sob Disfarce...", 10)
         try: driver.get("https://auth-cs.identidadedigital.pr.gov.br/centralautenticacao/login.html?response_type=code&client_id=9188905e74c28e489b44e954ec0b9bca&redirect_uri=https%3A%2F%2Fwww.eprotocolo.pr.gov.br%2Fspiweb")
         except: driver.execute_script("window.stop();")
-        time.sleep(2)
-        try: driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.ID, "btnCentral")))); time.sleep(2)
-        except: pass
+        time.sleep(3)
         
-        escreve_log("🔑 Injetando credenciais...", 15)
+        try: 
+            # Garantindo clique correto
+            btn_central = wait.until(EC.element_to_be_clickable((By.ID, "btnCentral")))
+            driver.execute_script("arguments[0].click();", btn_central)
+            time.sleep(2)
+        except Exception: 
+            escreve_log("Aviso: Tela direta detectada, prosseguindo...")
+            pass
+        
+        escreve_log("🔑 Injetando credenciais (Toque Humano)...", 15)
         usr_f = wait.until(EC.visibility_of_element_located((By.ID, "attribute_central")))
         usr_f.clear(); usr_f.send_keys(st.session_state.usr)
+        time.sleep(0.5)
         pwd_f = driver.find_element(By.ID, "password")
         pwd_f.clear(); pwd_f.send_keys(st.session_state.pwd)
         
-        # O TOQUE HUMANO: Pausa para o site registrar que o texto foi digitado
         time.sleep(1.5) 
         driver.execute_script("arguments[0].click();", driver.find_element(By.ID, "btn-central-acessar"))
         
@@ -234,12 +254,11 @@ elif st.session_state.fase_app == "processando":
             except: driver.execute_script("window.stop();")
             time.sleep(5)
             
-        # A CÂMERA DO ROBÔ: Tira foto se ainda estiver preso na tela de login
         if "login" in driver.current_url.lower() or "centralautenticacao" in driver.current_url.lower():
             foto_caminho = "/tmp/debug_login.png"
             driver.save_screenshot(foto_caminho)
             st.session_state.debug_img = foto_caminho
-            raise Exception("O portal recusou o acesso ou exigiu verificação humana. Verifique a imagem de diagnóstico abaixo.")
+            raise Exception("O portal identificou inconsistência de segurança ou a senha está incorreta. Verifique a imagem de diagnóstico abaixo.")
         
         escreve_log("📍 Mapeando 'Protocolos no Local'...", 25)
         driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.XPATH, "//a[@href='#div_protocolos' or contains(text(), 'Protocolos no Local')]"))))
@@ -422,7 +441,6 @@ elif st.session_state.fase_app == "erro":
     st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
     st.code(st.session_state.ultimo_erro, language="text")
     
-    # MOSTRA A FOTO DO ERRO (Se existir)
     foto_debug = st.session_state.get("debug_img", "")
     if foto_debug and os.path.exists(foto_debug):
         st.warning("📸 O robô tirou uma foto da tela no momento exato em que foi bloqueado:")
