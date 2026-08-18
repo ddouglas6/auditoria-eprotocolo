@@ -72,7 +72,6 @@ st.markdown("""
     </style>
     
     <script>
-    /* Trava de Tela: Impede o celular de dormir enquanto a página estiver aberta */
     async function keepAwake() {
         if ('wakeLock' in navigator) { try { await navigator.wakeLock.request('screen'); } catch (err) {} }
     }
@@ -171,7 +170,6 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
         st.error("⚠️ Atenção: Preencha suas Credenciais no menu lateral.")
         st.stop()
 
-    # --- INICIALIZAÇÃO DA INTERFACE DE LOGS ---
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0)
     log_placeholder = st.empty()
@@ -185,15 +183,19 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
 
     escreve_log("🚀 Despertando Servidores em Nuvem...", 2)
     
-    download_dir = "/tmp/downloads_eprotocolo"
+    # DIRETÓRIO ABSOLUTO (Garante permissão de escrita no Streamlit Cloud)
+    download_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads_eprotocolo"))
     os.makedirs(download_dir, exist_ok=True)
     
     chrome_prefs = {
         "download.default_directory": download_dir,
         "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
         "plugins.always_open_pdf_externally": True,
         "pdfjs.disabled": True,
-        "profile.managed_default_content_settings.images": 2 # Bloqueia imagens para economizar memória
+        "profile.default_content_settings.popups": 0,
+        "profile.content_settings.exceptions.automatic_downloads.*.setting": 1,
+        "profile.managed_default_content_settings.images": 2 
     }
     
     options = Options()
@@ -210,7 +212,7 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
     try:
         driver = webdriver.Chrome(options=options)
         
-        # COMANDO DE FORÇA MAIOR: Obriga o Chrome Invisível a aceitar downloads!
+        # COMANDO DE FORÇA MAIOR E DEFINITIVO PARA HEADLESS DOWNLOADS
         driver.execute_cdp_cmd('Page.setDownloadBehavior', {
             'behavior': 'allow',
             'downloadPath': download_dir
@@ -312,18 +314,26 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
                         if st.session_state.cb_ia_risco: 
                             dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
                         
-                        # BLOCO DE IA ISOLADO E DETALHADO NO TERMINAL
                         if st.session_state.cb_resumo_ia:
                             escreve_log(f"      📥 [IA] Solicitando download do anexo PDF...")
                             try:
                                 for f in os.listdir(download_dir): os.remove(os.path.join(download_dir, f))
-                                driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.XPATH, "//a[.//img[contains(@src, 'icon_download.svg')]] | //img[contains(@src, 'icon_download.svg')]"))))
+                                btn_download = wait.until(EC.presence_of_element_located((By.XPATH, "//a[.//img[contains(@src, 'icon_download.svg')]] | //img[contains(@src, 'icon_download.svg')]")))
+                                driver.execute_script("arguments[0].click();", btn_download)
                                 
                                 arquivo_baixado = None
-                                escreve_log(f"      ⏳ Aguardando a nuvem processar o arquivo...")
-                                for _ in range(90):  # TEMPO DOBRADO (90 SEGUNDOS) PARA ARQUIVOS GRANDES
+                                download_iniciado = False
+                                escreve_log(f"      ⏳ Aguardando a nuvem processar o arquivo (Paciência: 75s)...")
+                                
+                                for t_wait in range(75):
                                     time.sleep(1)
                                     arquivos = os.listdir(download_dir)
+                                    
+                                    # Diagnóstico de início de download
+                                    if any(f.endswith('.crdownload') for f in arquivos) and not download_iniciado:
+                                        download_iniciado = True
+                                        escreve_log(f"      🔄 O arquivo começou a baixar. Aguardando conclusão...")
+                                        
                                     arquivos_prontos = [f for f in arquivos if not f.endswith('.crdownload') and not f.endswith('.tmp')]
                                     if arquivos_prontos:
                                         arquivos_prontos.sort(key=lambda x: os.path.getmtime(os.path.join(download_dir, x)), reverse=True)
@@ -344,17 +354,17 @@ if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True)
                                         dict_dados["Resumo Avançado (IA)"] = "Documento em imagem (sem OCR)."
                                         escreve_log(f"      ⚠️ O PDF não possui texto selecionável (imagem/scan).")
                                 else: 
-                                    dict_dados["Resumo Avançado (IA)"] = "Timeout no Download Nuvem."
-                                    escreve_log(f"      ⚠️ Falha ao baixar o PDF.")
+                                    dict_dados["Resumo Avançado (IA)"] = "Falha no Download."
+                                    if download_iniciado:
+                                        escreve_log(f"      ⚠️ O arquivo é gigante e o servidor cortou por tempo limite (Timeout).")
+                                    else:
+                                        escreve_log(f"      ⚠️ O clique no botão foi bloqueado pela segurança do servidor.")
                             except Exception: 
                                 dict_dados["Resumo Avançado (IA)"] = "Documento Bloqueado/Restrito."
                                 escreve_log(f"      ⚠️ O documento não está disponível para leitura.")
                             finally:
                                 while len(driver.window_handles) > 1: driver.switch_to.window(driver.window_handles[-1]); driver.close()
                                 driver.switch_to.window(janela_principal)
-                        else:
-                            # Pula e ignora leitura IA se não estiver marcado
-                            pass 
 
                         if st.session_state.cb_historico:
                             try:
