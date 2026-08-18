@@ -29,7 +29,7 @@ chaves_padrao = {
     "usr": "", "pwd": "", "gemini_key": "", "cb_ia_risco": True, "cb_resumo_ia": False,
     "txt_palavra_ia": "Mandado", "dd_prioridade_ia": "🔴 ALTO", "filtro_dias": 0, "alerta_dias": 30,
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
-    "cb_word": False, "ordem_relatorio": "Decrescente", # <-- CORRIGIDO AQUI
+    "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False
 }
 for k, v in chaves_padrao.items():
@@ -147,14 +147,24 @@ if st.session_state.fase_app == "inicio":
             st.checkbox("Gerar Relatório em PDF", key="cb_pdf")
             st.checkbox("Gerar Planilha em Excel", key="cb_excel")
             st.checkbox("Gerar Ofício em Word", key="cb_word")
-            # <-- AS OPÇÕES AGORA SÃO APENAS "Decrescente" e "Crescente"
             st.radio("Organização Cronológica:", ["Decrescente", "Crescente"], key="ordem_relatorio")
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True):
-        if not st.session_state.usr or not st.session_state.pwd:
-            st.error("⚠️ Preencha suas Credenciais no menu lateral.")
+        
+        # VALIDAÇÃO INTELIGENTE (Mostra exatamente o que faltou preencher)
+        usr_val = st.session_state.get('usr', '').strip()
+        pwd_val = st.session_state.get('pwd', '').strip()
+        
+        if not usr_val or not pwd_val:
+            faltando = []
+            if not usr_val: faltando.append("CPF")
+            if not pwd_val: faltando.append("Senha")
+            
+            st.error(f"⚠️ Atenção: Preencha o(a) **{' e '.join(faltando)}** no menu lateral esquerdo.")
+            st.info("📱 **Dica de Celular:** Após digitar sua senha no menu, toque no botão 'Concluído/Return' do seu teclado ou toque em qualquer lugar vazio da tela para confirmar, antes de apertar Iniciar.")
             st.stop()
+            
         st.session_state.downloads_feitos = False
         st.session_state.fase_app = "processando"
         st.rerun()
@@ -352,7 +362,6 @@ elif st.session_state.fase_app == "concluido":
             df.to_excel(output_excel, index=False)
             dados_excel = output_excel.getvalue()
             col_btn1.download_button("📊 Baixar Excel", dados_excel, "Auditoria_eProtocolo.xlsx", "application/vnd.ms-excel", use_container_width=True)
-            # DOWNLOAD AUTOMÁTICO EXCEL
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_excel, "Auditoria_eProtocolo.xlsx", "application/vnd.ms-excel")
         
@@ -373,7 +382,6 @@ elif st.session_state.fase_app == "concluido":
             
             dados_pdf = pdf.output(dest='S').encode('latin-1')
             col_btn2.download_button("📕 Baixar PDF", dados_pdf, "Auditoria_eProtocolo.pdf", "application/pdf", use_container_width=True)
-            # DOWNLOAD AUTOMÁTICO PDF
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_pdf, "Auditoria_eProtocolo.pdf", "application/pdf")
         
@@ -387,11 +395,10 @@ elif st.session_state.fase_app == "concluido":
             output_word = io.BytesIO(); doc.save(output_word)
             dados_word = output_word.getvalue()
             col_btn3.download_button("📘 Baixar Word", dados_word, "Auditoria_eProtocolo.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-            # DOWNLOAD AUTOMÁTICO WORD
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_word, "Auditoria_eProtocolo.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-        st.session_state.downloads_feitos = True # Garante que só baixe automático na primeira vez
+        st.session_state.downloads_feitos = True 
 
     else:
         st.warning("Nenhum processo atendeu aos critérios estabelecidos.")
@@ -403,7 +410,7 @@ elif st.session_state.fase_app == "concluido":
         st.rerun()
 
 elif st.session_state.fase_app == "erro":
-    st.error("❌ Ocorreu uma instabilidade no servidor e a coleta foi interrompida.")
+    st.error("❌ Ocorreu uma instabilidade no servidor (provavelmente falta de memória) e a coleta foi interrompida.")
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
         st.rerun()
