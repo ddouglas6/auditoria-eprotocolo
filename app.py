@@ -1,7 +1,3 @@
-Excelente escolha! A Opção 3 (SaaS Clean & Minimalista) é de longe a mais elegante. Ela traz aquela sensação de aplicativo da Apple: muito espaço em branco, bordas suaves, cantos arredondados, cores frias (um tom de roxo/índigo belíssimo) e foco total no que importa, sem poluição visual.
-Eu eliminei as abas. Agora, quando você abrir no celular, verá o painel de configurações organizado em blocos bonitos e, logo abaixo, o botão gigante "🚀 INICIAR AUDITORIA". O menu lateral continua guardando o seu Gerenciador de Perfis para importar/exportar suas senhas de forma segura e local. O sistema de segundo plano (motor autônomo e proteção contra bloqueio de tela) continua 100% ativo.
-O Código Definitivo (Versão 28.0 - Design SaaS Minimalista)
-No seu GitHub, abra o arquivo app.py, apague tudo o que está lá e cole este novo código. Ele já fará a mágica visual instantaneamente.
 import streamlit as st
 import pandas as pd
 import pdfplumber
