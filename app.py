@@ -20,7 +20,6 @@ from selenium.webdriver.support.ui import Select
 from fpdf import FPDF
 import docx
 
-# Desativa avisos de conexão insegura (padrão em sites do governo)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =====================================================================
@@ -34,19 +33,17 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": "", "debug_img": ""
+    "ultimo_erro": ""
 }
 
-# Inicializa a memória se for a primeira vez
 for k, v in chaves_padrao.items():
     if k not in st.session_state: 
         st.session_state[k] = v
 
 # =====================================================================
-# 2. FUNÇÕES AUXILIARES DE SISTEMA E IA
+# 2. FUNÇÕES AUXILIARES
 # =====================================================================
 def forcar_download_automatico(dados_bytes, nome_arquivo, tipo_mime):
-    """Injeta um script JS para forçar o download automático do arquivo gerado."""
     b64 = base64.b64encode(dados_bytes).decode()
     id_link = re.sub(r'\W+', '', nome_arquivo)
     html_str = f"""
@@ -84,7 +81,7 @@ def gerar_resumo_documento_ia(texto, chave_api):
     except Exception as e: return f"Erro IA: {str(e)[:40]}"
 
 # =====================================================================
-# 3. DESIGN SAAS CLEAN E WAKE LOCK (Impede bloqueio de tela)
+# 3. DESIGN E WAKE LOCK
 # =====================================================================
 st.markdown("""
     <style>
@@ -103,7 +100,7 @@ st.markdown("""
     .stButton>button[kind="primary"] {background-color: #4f46e5; color: white; font-size: 1.1em; padding: 1rem;}
     .stButton>button[kind="primary"]:hover {background-color: #4338ca; transform: translateY(-1px);}
     .stDownloadButton>button {border-radius: 12px; font-weight: 600; color: #ffffff; background-color: #10b981; border: none; padding: 0.8rem; font-size: 1.05em;}
-    .stDownloadButton>button:hover {background-color: #059669; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);}
+    .stDownloadButton>button:hover {background-color: #059669;}
     
     @media (max-width: 768px) { .main-header {padding: 25px 15px;} .main-header h1 {font-size: 1.8em;} .log-box {height: 250px; font-size: 11px;} }
     </style>
@@ -120,7 +117,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. SIDEBAR - GESTÃO DE PERFIS (Segurança Local)
+# 4. SIDEBAR - GESTÃO DE PERFIS
 # =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
@@ -130,16 +127,16 @@ with st.sidebar:
         try:
             dados_carregados = json.load(arquivo_perfil)
             for k, v in dados_carregados.items():
-                if k == "ordem_relatorio": # Retrocompatibilidade
+                if k == "ordem_relatorio":
                     v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
                 if k in st.session_state: 
                     st.session_state[k] = v
-            st.success("Perfil carregado! A página vai aplicar as mudanças.")
+            st.success("Perfil carregado! A página vai atualizar.")
             time.sleep(1.5)
             st.rerun()
         except: st.error("Erro ao ler o arquivo JSON.")
         
-    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "debug_img"]}, indent=4)
+    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro"]}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
     
     st.divider(); st.markdown("### 🔐 Credenciais")
@@ -155,10 +152,9 @@ with st.sidebar:
         st.selectbox("Prioridade:", ["🔴 ALTO", "🟡 MÉDIO", "🟢 BAIXO"], key="dd_prioridade_ia")
 
 # =====================================================================
-# 5. MÁQUINA DE ESTADOS DO APP (Fluxo Principal)
+# 5. MÁQUINA DE ESTADOS DO APP
 # =====================================================================
 
-# FASE 1: TELA INICIAL
 if st.session_state.fase_app == "inicio":
     st.markdown("### ⚙️ Painel de Configurações")
     with st.container(border=True):
@@ -182,19 +178,14 @@ if st.session_state.fase_app == "inicio":
         pwd_val = st.session_state.get('pwd', '').strip()
         
         if not usr_val or not pwd_val:
-            faltando = ["CPF"] if not usr_val else []
-            if not pwd_val: faltando.append("Senha")
-            st.error(f"⚠️ Atenção: Preencha o(a) **{' e '.join(faltando)}** no menu lateral esquerdo.")
-            st.info("📱 **Dica de Celular:** Após digitar sua senha no menu, toque no botão 'Concluído/Return' do seu teclado ou toque em qualquer lugar vazio da tela para confirmar, antes de apertar Iniciar.")
+            st.error("⚠️ Atenção: Preencha seu CPF e Senha no menu lateral esquerdo.")
             st.stop()
             
         st.session_state.downloads_feitos = False
         st.session_state.ultimo_erro = ""
-        st.session_state.debug_img = ""
         st.session_state.fase_app = "processando"
         st.rerun()
 
-# FASE 2: MOTOR DE AUTOMAÇÃO E EXTRAÇÃO (Rodando no Servidor)
 elif st.session_state.fase_app == "processando":
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0)
@@ -209,27 +200,21 @@ elif st.session_state.fase_app == "processando":
 
     escreve_log("🚀 Despertando Servidores em Nuvem...", 2)
     
-    # Define o diretório de downloads temporários do Linux (Garante permissão de escrita)
     download_dir = "/tmp/downloads_eprotocolo"
     os.makedirs(download_dir, exist_ok=True)
     
-    # CONFIGURAÇÕES AVANÇADAS ANTI-BOT
+    # OPÇÕES LIMPAS E DIRETAS (Retorno ao básico que funcionava o Login)
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
-    options.add_argument('--disable-software-rasterizer')
-    options.add_argument('--disable-blink-features=AutomationControlled') # Esconde a flag de bot
-    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36') # Finge ser Windows 10
-    
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-    
     options.add_experimental_option("prefs", {
-        "download.default_directory": download_dir, "download.prompt_for_download": False,
-        "plugins.always_open_pdf_externally": True, "pdfjs.disabled": True
+        "download.default_directory": download_dir, 
+        "download.prompt_for_download": False,
+        "plugins.always_open_pdf_externally": True, 
+        "pdfjs.disabled": True
     })
     options.binary_location = "/usr/bin/chromium"
     
@@ -238,34 +223,24 @@ elif st.session_state.fase_app == "processando":
     
     try:
         driver = webdriver.Chrome(options=options)
-        
-        # Apaga o registro JavaScript de que o navegador é um WebDriver
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        # Força a permissão de download no modo Headless do Streamlit
         driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': download_dir})
-        
         wait = WebDriverWait(driver, 45)
         
-        escreve_log("🚪 Acessando o portal sob Disfarce...", 10)
+        escreve_log("🚪 Acessando o portal...", 10)
         try: driver.get("https://auth-cs.identidadedigital.pr.gov.br/centralautenticacao/login.html?response_type=code&client_id=9188905e74c28e489b44e954ec0b9bca&redirect_uri=https%3A%2F%2Fwww.eprotocolo.pr.gov.br%2Fspiweb")
         except: driver.execute_script("window.stop();")
-        time.sleep(3)
+        time.sleep(2)
         
-        # Clicando no botão inicial (se houver interceptação do .gov)
         try: 
-            btn_central = wait.until(EC.element_to_be_clickable((By.ID, "btnCentral")))
-            driver.execute_script("arguments[0].click();", btn_central)
+            driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.ID, "btnCentral"))))
             time.sleep(2)
         except Exception: pass
         
         escreve_log("🔑 Injetando credenciais...", 15)
         usr_f = wait.until(EC.visibility_of_element_located((By.ID, "attribute_central")))
         usr_f.clear(); usr_f.send_keys(st.session_state.usr)
-        time.sleep(0.5)
         pwd_f = driver.find_element(By.ID, "password")
         pwd_f.clear(); pwd_f.send_keys(st.session_state.pwd)
-        
-        time.sleep(1.5) # Simula o tempo de clique humano
         driver.execute_script("arguments[0].click();", driver.find_element(By.ID, "btn-central-acessar"))
         
         escreve_log("⏳ Negociando Acesso com o Estado...", 20)
@@ -278,13 +253,6 @@ elif st.session_state.fase_app == "processando":
             except: driver.execute_script("window.stop();")
             time.sleep(5)
             
-        # VALIDAÇÃO DE SUCESSO DO LOGIN (Tira foto se falhar)
-        if "login" in driver.current_url.lower() or "centralautenticacao" in driver.current_url.lower():
-            foto_caminho = "/tmp/debug_login.png"
-            driver.save_screenshot(foto_caminho)
-            st.session_state.debug_img = foto_caminho
-            raise Exception("O portal identificou inconsistência de segurança ou a senha está incorreta. Verifique a imagem de diagnóstico abaixo.")
-        
         escreve_log("📍 Mapeando 'Protocolos no Local'...", 25)
         driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.XPATH, "//a[@href='#div_protocolos' or contains(text(), 'Protocolos no Local')]"))))
         time.sleep(5)
@@ -388,7 +356,7 @@ elif st.session_state.fase_app == "processando":
                         driver.execute_script("arguments[0].click();", wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@value='Voltar'] | //button[contains(text(), 'Voltar')]"))))
                     except: driver.execute_script("window.history.go(-1)")
                     time.sleep(2)
-                    gc.collect() # Limpeza forçada de memória RAM
+                    gc.collect() 
                     
         escreve_log("✨ Auditoria de Campo finalizada. Diagramando resultados...", 100)
         
@@ -403,7 +371,6 @@ elif st.session_state.fase_app == "processando":
         st.session_state.fase_app = "erro" if erro_fatal and not dados_finais else "concluido"
         st.rerun()
 
-# FASE 3: EXIBIÇÃO DE RESULTADOS E DOWNLOAD AUTOMÁTICO
 elif st.session_state.fase_app == "concluido":
     st.success("🎉 Processamento concluído com sucesso!")
     df = pd.DataFrame(st.session_state.dados_auditoria)
@@ -418,7 +385,6 @@ elif st.session_state.fase_app == "concluido":
         st.markdown("### 📥 Seus Relatórios")
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
-        # --- EXCEL ---
         if st.session_state.cb_excel:
             output_excel = io.BytesIO()
             df.to_excel(output_excel, index=False)
@@ -427,13 +393,12 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_excel, "Auditoria_eProtocolo.xlsx", "application/vnd.ms-excel")
         
-        # --- PDF ---
         if st.session_state.cb_pdf:
             pdf = FPDF(); pdf.add_page(); pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, txt="Auditoria E-protocolo", ln=True, align='C')
             locais = {}
             for _, p in df.iterrows(): locais.setdefault(p['Local do Filtro'], []).append(p)
             for loc, group in locais.items():
-                pdf.ln(5); pdf.set_font("Arial", 'B', 11); pdf.set_fill_color(79, 70, 229); pdf.set_text_color(255, 255, 255); pdf.multi_cell(0, 8, limpa_pdf(f" SETOR: {loc} - ({len(group)} Processos Pendentes)"), fill=True)
+                pdf.ln(5); pdf.set_font("Arial", 'B', 11); pdf.set_fill_color(79, 70, 229); pdf.set_text_color(255, 255, 255); pdf.multi_cell(0, 8, limpa_pdf(f" SETOR: {loc} - ({len(group)} Processos)"), fill=True)
                 for p in group:
                     pdf.set_font("Arial", 'B', 10); pdf.set_text_color(204, 0, 0) if p.get('Dias no mesmo local', 0) >= st.session_state.alerta_dias else pdf.set_text_color(0, 0, 0)
                     pdf.ln(3); pdf.cell(0, 6, limpa_pdf(f"Protocolo: {p.get('Numero do Eprotocolo', '-')} | Dias Parado: {p.get('Dias no mesmo local', 0)}"), 0, 1)
@@ -447,7 +412,6 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_pdf, "Auditoria_eProtocolo.pdf", "application/pdf")
         
-        # --- WORD ---
         if st.session_state.cb_word:
             doc = docx.Document(); doc.add_heading('Auditoria E-protocolo', 0).alignment = 1 
             for _, p in df.iterrows():
@@ -470,17 +434,10 @@ elif st.session_state.fase_app == "concluido":
         st.session_state.dados_auditoria = []
         st.rerun()
 
-# FASE 4: TELA DE ERRO (Com Câmera de Diagnóstico)
 elif st.session_state.fase_app == "erro":
     st.error("❌ A auditoria foi interrompida prematuramente.")
-    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento. O portal do estado encerrou a conexão forçadamente.")
+    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
     st.code(st.session_state.ultimo_erro, language="text")
-    
-    foto_debug = st.session_state.get("debug_img", "")
-    if foto_debug and os.path.exists(foto_debug):
-        st.warning("📸 O robô tirou uma foto da tela no momento exato em que foi bloqueado:")
-        st.image(foto_debug, caption="Visão do Robô no momento do travamento")
-        
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
         st.rerun()
