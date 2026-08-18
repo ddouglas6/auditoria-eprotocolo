@@ -20,9 +20,12 @@ from selenium.webdriver.support.ui import Select
 from fpdf import FPDF
 import docx
 
+# Desativa avisos de conexão insegura (padrão em sites do governo)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# --- 1. CONFIGURAÇÃO E MEMÓRIA ---
+# =====================================================================
+# 1. CONFIGURAÇÃO DA PÁGINA E MEMÓRIA DE SESSÃO
+# =====================================================================
 st.set_page_config(page_title="Auditoria e-Protocolo", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
 
 chaves_padrao = {
@@ -33,56 +36,31 @@ chaves_padrao = {
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
     "ultimo_erro": "", "debug_img": ""
 }
+
+# Inicializa a memória se for a primeira vez
 for k, v in chaves_padrao.items():
     if k not in st.session_state: 
         st.session_state[k] = v
 
-# --- 2. TRUQUE DO DOWNLOAD AUTOMÁTICO ---
+# =====================================================================
+# 2. FUNÇÕES AUXILIARES DE SISTEMA E IA
+# =====================================================================
 def forcar_download_automatico(dados_bytes, nome_arquivo, tipo_mime):
+    """Injeta um script JS para forçar o download automático do arquivo gerado."""
     b64 = base64.b64encode(dados_bytes).decode()
     id_link = re.sub(r'\W+', '', nome_arquivo)
     html_str = f"""
         <a id="{id_link}" href="data:{tipo_mime};base64,{b64}" download="{nome_arquivo}" style="display:none;">AutoDownload</a>
-        <script>
-            document.getElementById("{id_link}").click();
-        </script>
+        <script>document.getElementById("{id_link}").click();</script>
     """
     st.components.v1.html(html_str, height=0, width=0)
 
-# --- 3. DESIGN E ESTILO ---
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
-    [data-testid="stConnectionStatus"] {display: none !important;}
-    .main-header {background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 35px 25px; border-radius: 20px; color: white; text-align: center; margin-bottom: 30px; box-shadow: 0 10px 30px -10px rgba(79, 70, 229, 0.4);}
-    .main-header h1 {margin: 0; font-size: 2.4em; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;}
-    .main-header p {margin: 8px 0 0 0; font-size: 1.1em; color: #e0e7ff; font-weight: 300;}
-    div[data-testid="stVerticalBlock"] > div[style*="border"] {background-color: #ffffff !important; border: 1px solid #f1f5f9 !important; border-radius: 20px !important; box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03) !important; padding: 10px;}
-    .log-box {background-color: #f8fafc; color: #475569; padding: 20px; border-radius: 16px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.02);}
-    .stButton>button {border-radius: 14px; font-weight: 600; padding: 0.6rem 1rem; transition: all 0.2s ease; border: none;}
-    .stButton>button[kind="primary"] {background-color: #4f46e5; color: white; font-size: 1.1em; padding: 1rem;}
-    .stButton>button[kind="primary"]:hover {background-color: #4338ca; transform: translateY(-1px);}
-    .stDownloadButton>button {border-radius: 12px; font-weight: 600; color: #ffffff; background-color: #10b981; border: none; padding: 0.8rem; font-size: 1.05em;}
-    .stDownloadButton>button:hover {background-color: #059669;}
-    @media (max-width: 768px) { .main-header {padding: 25px 15px;} .main-header h1 {font-size: 1.8em;} .log-box {height: 250px; font-size: 11px;} }
-    </style>
-    <script>
-    async function keepAwake() { if ('wakeLock' in navigator) { try { await navigator.wakeLock.request('screen'); } catch (err) {} } }
-    keepAwake(); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); } });
-    </script>
-    <div class="main-header">
-        <h1>🛡️ Auditoria de e-Protocolo</h1>
-        <p>Sistema Limpo • Autônomo • Em Nuvem</p>
-    </div>
-""", unsafe_allow_html=True)
-
-# --- 4. FUNÇÕES DE IA E PROCESSAMENTO ---
 def calcular_dias(data_str):
     try: return max(0, (datetime.now() - datetime.strptime(re.search(r'\d{2}/\d{2}/\d{4}', str(data_str)).group(), "%d/%m/%Y")).days)
     except: return 0
 
-def e_nao_atribuido(texto): return not texto or texto.strip() == "-"
+def e_nao_atribuido(texto): 
+    return not texto or texto.strip() == "-"
 
 def analisar_risco(texto, p_custom, r_custom):
     t = str(texto).lower(); pc = str(p_custom).lower().strip()
@@ -99,31 +77,75 @@ def gerar_resumo_documento_ia(texto, chave_api):
     if not chave_api or len(str(texto).strip()) < 10: return "Resumo indisponível."
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={chave_api}"
-        payload = {"contents": [{"parts": [{"text": f"Resuma em 1 parágrafo: 1) Assunto; 2) Próximo passo; 3) Último andamento.\n\n{str(texto)[:30000]}"}]}], "generationConfig": {"temperature": 0.3}}
+        payload = {"contents": [{"parts": [{"text": f"Resuma em 1 parágrafo direto e profissional: 1) Assunto; 2) Próximo passo; 3) Último andamento.\n\n{str(texto)[:30000]}"}]}], "generationConfig": {"temperature": 0.3}}
         resp = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload, timeout=20)
         if resp.status_code == 200: return resp.json()['candidates'][0]['content']['parts'][0]['text'].strip().replace('*', '')
         return f"Falha na IA ({resp.status_code})."
     except Exception as e: return f"Erro IA: {str(e)[:40]}"
 
-# --- 5. SIDEBAR ---
+# =====================================================================
+# 3. DESIGN SAAS CLEAN E WAKE LOCK (Impede bloqueio de tela)
+# =====================================================================
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+    [data-testid="stConnectionStatus"] {display: none !important;}
+    
+    .main-header {background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%); padding: 35px 25px; border-radius: 20px; color: white; text-align: center; margin-bottom: 30px; box-shadow: 0 10px 30px -10px rgba(79, 70, 229, 0.4);}
+    .main-header h1 {margin: 0; font-size: 2.4em; font-weight: 700; color: #ffffff; letter-spacing: -0.5px;}
+    .main-header p {margin: 8px 0 0 0; font-size: 1.1em; color: #e0e7ff; font-weight: 300;}
+    
+    div[data-testid="stVerticalBlock"] > div[style*="border"] {background-color: #ffffff !important; border: 1px solid #f1f5f9 !important; border-radius: 20px !important; box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03) !important; padding: 10px;}
+    .log-box {background-color: #f8fafc; color: #475569; padding: 20px; border-radius: 16px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.02);}
+    
+    .stButton>button {border-radius: 14px; font-weight: 600; padding: 0.6rem 1rem; transition: all 0.2s ease; border: none;}
+    .stButton>button[kind="primary"] {background-color: #4f46e5; color: white; font-size: 1.1em; padding: 1rem;}
+    .stButton>button[kind="primary"]:hover {background-color: #4338ca; transform: translateY(-1px);}
+    .stDownloadButton>button {border-radius: 12px; font-weight: 600; color: #ffffff; background-color: #10b981; border: none; padding: 0.8rem; font-size: 1.05em;}
+    .stDownloadButton>button:hover {background-color: #059669; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);}
+    
+    @media (max-width: 768px) { .main-header {padding: 25px 15px;} .main-header h1 {font-size: 1.8em;} .log-box {height: 250px; font-size: 11px;} }
+    </style>
+    
+    <script>
+    async function keepAwake() { if ('wakeLock' in navigator) { try { await navigator.wakeLock.request('screen'); } catch (err) {} } }
+    keepAwake(); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); } });
+    </script>
+    
+    <div class="main-header">
+        <h1>🛡️ Auditoria de e-Protocolo</h1>
+        <p>Sistema Limpo • Autônomo • Em Nuvem</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# =====================================================================
+# 4. SIDEBAR - GESTÃO DE PERFIS (Segurança Local)
+# =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
+    
     arquivo_perfil = st.file_uploader("📂 Importar Perfil (.json)", type="json", label_visibility="collapsed")
     if arquivo_perfil:
         try:
             dados_carregados = json.load(arquivo_perfil)
             for k, v in dados_carregados.items():
-                if k == "ordem_relatorio":
-                    if "antigos" in str(v).lower() or "Decrescente" in str(v): v = "Decrescente"
-                    else: v = "Crescente"
-                if k in st.session_state: st.session_state[k] = v
-            st.success("Perfil carregado!")
-        except: st.error("Erro JSON.")
+                if k == "ordem_relatorio": # Retrocompatibilidade
+                    v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
+                if k in st.session_state: 
+                    st.session_state[k] = v
+            st.success("Perfil carregado! A página vai aplicar as mudanças.")
+            time.sleep(1.5)
+            st.rerun()
+        except: st.error("Erro ao ler o arquivo JSON.")
+        
     json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "debug_img"]}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
+    
     st.divider(); st.markdown("### 🔐 Credenciais")
     st.text_input("CPF do Usuário:", key="usr")
     st.text_input("Senha de Acesso:", key="pwd", type="password")
+    
     st.divider(); st.markdown("### 🤖 Integração I.A.")
     st.text_input("Gemini API Key:", key="gemini_key", type="password")
     st.checkbox("Alerta Semântico (Risco)", key="cb_ia_risco")
@@ -133,9 +155,10 @@ with st.sidebar:
         st.selectbox("Prioridade:", ["🔴 ALTO", "🟡 MÉDIO", "🟢 BAIXO"], key="dd_prioridade_ia")
 
 # =====================================================================
-# MÁQUINA DE ESTADOS
+# 5. MÁQUINA DE ESTADOS DO APP (Fluxo Principal)
 # =====================================================================
 
+# FASE 1: TELA INICIAL
 if st.session_state.fase_app == "inicio":
     st.markdown("### ⚙️ Painel de Configurações")
     with st.container(border=True):
@@ -159,7 +182,10 @@ if st.session_state.fase_app == "inicio":
         pwd_val = st.session_state.get('pwd', '').strip()
         
         if not usr_val or not pwd_val:
-            st.error("⚠️ Atenção: Preencha seu CPF e Senha no menu lateral esquerdo.")
+            faltando = ["CPF"] if not usr_val else []
+            if not pwd_val: faltando.append("Senha")
+            st.error(f"⚠️ Atenção: Preencha o(a) **{' e '.join(faltando)}** no menu lateral esquerdo.")
+            st.info("📱 **Dica de Celular:** Após digitar sua senha no menu, toque no botão 'Concluído/Return' do seu teclado ou toque em qualquer lugar vazio da tela para confirmar, antes de apertar Iniciar.")
             st.stop()
             
         st.session_state.downloads_feitos = False
@@ -168,6 +194,7 @@ if st.session_state.fase_app == "inicio":
         st.session_state.fase_app = "processando"
         st.rerun()
 
+# FASE 2: MOTOR DE AUTOMAÇÃO E EXTRAÇÃO (Rodando no Servidor)
 elif st.session_state.fase_app == "processando":
     st.markdown("<hr>", unsafe_allow_html=True)
     progress_bar = st.progress(0)
@@ -181,10 +208,12 @@ elif st.session_state.fase_app == "processando":
         if prog is not None: progress_bar.progress(prog / 100.0)
 
     escreve_log("🚀 Despertando Servidores em Nuvem...", 2)
-    download_dir = os.path.abspath(os.path.join(os.getcwd(), "downloads_eprotocolo"))
+    
+    # Define o diretório de downloads temporários do Linux (Garante permissão de escrita)
+    download_dir = "/tmp/downloads_eprotocolo"
     os.makedirs(download_dir, exist_ok=True)
     
-    # NOVAS MÁSCARAS ANTI-BOT APLICADAS AQUI
+    # CONFIGURAÇÕES AVANÇADAS ANTI-BOT
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -192,11 +221,8 @@ elif st.session_state.fase_app == "processando":
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--disable-software-rasterizer')
-    
-    # Esconde a flag de automação do Selenium
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    # Falsifica um navegador Windows de usuário real
-    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    options.add_argument('--disable-blink-features=AutomationControlled') # Esconde a flag de bot
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36') # Finge ser Windows 10
     
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
@@ -204,7 +230,6 @@ elif st.session_state.fase_app == "processando":
     options.add_experimental_option("prefs", {
         "download.default_directory": download_dir, "download.prompt_for_download": False,
         "plugins.always_open_pdf_externally": True, "pdfjs.disabled": True
-        # REMOVIDO o bloqueio de imagens para não acionar o alerta do firewall
     })
     options.binary_location = "/usr/bin/chromium"
     
@@ -214,8 +239,9 @@ elif st.session_state.fase_app == "processando":
     try:
         driver = webdriver.Chrome(options=options)
         
-        # Injeta um script extra para apagar rastros digitais de bot na página
+        # Apaga o registro JavaScript de que o navegador é um WebDriver
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # Força a permissão de download no modo Headless do Streamlit
         driver.execute_cdp_cmd('Page.setDownloadBehavior', {'behavior': 'allow', 'downloadPath': download_dir})
         
         wait = WebDriverWait(driver, 45)
@@ -225,23 +251,21 @@ elif st.session_state.fase_app == "processando":
         except: driver.execute_script("window.stop();")
         time.sleep(3)
         
+        # Clicando no botão inicial (se houver interceptação do .gov)
         try: 
-            # Garantindo clique correto
             btn_central = wait.until(EC.element_to_be_clickable((By.ID, "btnCentral")))
             driver.execute_script("arguments[0].click();", btn_central)
             time.sleep(2)
-        except Exception: 
-            escreve_log("Aviso: Tela direta detectada, prosseguindo...")
-            pass
+        except Exception: pass
         
-        escreve_log("🔑 Injetando credenciais (Toque Humano)...", 15)
+        escreve_log("🔑 Injetando credenciais...", 15)
         usr_f = wait.until(EC.visibility_of_element_located((By.ID, "attribute_central")))
         usr_f.clear(); usr_f.send_keys(st.session_state.usr)
         time.sleep(0.5)
         pwd_f = driver.find_element(By.ID, "password")
         pwd_f.clear(); pwd_f.send_keys(st.session_state.pwd)
         
-        time.sleep(1.5) 
+        time.sleep(1.5) # Simula o tempo de clique humano
         driver.execute_script("arguments[0].click();", driver.find_element(By.ID, "btn-central-acessar"))
         
         escreve_log("⏳ Negociando Acesso com o Estado...", 20)
@@ -254,6 +278,7 @@ elif st.session_state.fase_app == "processando":
             except: driver.execute_script("window.stop();")
             time.sleep(5)
             
+        # VALIDAÇÃO DE SUCESSO DO LOGIN (Tira foto se falhar)
         if "login" in driver.current_url.lower() or "centralautenticacao" in driver.current_url.lower():
             foto_caminho = "/tmp/debug_login.png"
             driver.save_screenshot(foto_caminho)
@@ -266,12 +291,12 @@ elif st.session_state.fase_app == "processando":
         
         opcoes_locais = [opt.text.strip() for opt in Select(wait.until(EC.presence_of_element_located((By.ID, "codLocal")))).options if opt.text.strip() and "Selecione" not in opt.text]
         janela_principal = driver.current_window_handle
-        escreve_log(f"📋 Encontrados {len(opcoes_locais)} locais.", 30)
+        escreve_log(f"📋 Encontrados {len(opcoes_locais)} locais autorizados.", 30)
         
         salto_progresso = 60 / max(len(opcoes_locais), 1)
         
         for idx_loc, nome_local in enumerate(opcoes_locais):
-            escreve_log(f"🔎 Leitura em: {nome_local}", 30 + (idx_loc * salto_progresso))
+            escreve_log(f"🔎 Analisando Setor: {nome_local}", 30 + (idx_loc * salto_progresso))
             Select(wait.until(EC.presence_of_element_located((By.ID, "codLocal")))).select_by_visible_text(nome_local)
             time.sleep(3) 
             try: driver.execute_script("arguments[0].click();", driver.find_element(By.ID, "botaoPesquisar"))
@@ -305,7 +330,7 @@ elif st.session_state.fase_app == "processando":
                     dias_calculados = calcular_dias(data_envio)
                     
                     if dias_calculados >= st.session_state.filtro_dias:
-                        escreve_log(f"      📄 Protocolo: {num_prot}")
+                        escreve_log(f"      📄 Coletando ID: {num_prot}")
                         dict_dados = {
                             "Local do Filtro": nome_local, "Numero do Eprotocolo": num_prot, "Atribuído para": atribuido_para,
                             "Detalhamento": pt("//div[contains(text(), 'Detalhamento:')]/following-sibling::div[1]"),
@@ -316,12 +341,16 @@ elif st.session_state.fase_app == "processando":
                             "Enviado em": data_envio, "Dias no mesmo local": dias_calculados
                         }
                         
-                        if st.session_state.cb_ia_risco: dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
+                        if st.session_state.cb_ia_risco: 
+                            dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
                         
                         if st.session_state.cb_resumo_ia:
-                            escreve_log(f"      📥 Baixando anexo para IA...")
+                            escreve_log(f"      📥 Baixando anexo para Inteligência Artificial...")
                             try:
-                                for f in os.listdir(download_dir): os.remove(os.path.join(download_dir, f))
+                                for f in os.listdir(download_dir): 
+                                    try: os.remove(os.path.join(download_dir, f))
+                                    except: pass
+                                    
                                 driver.execute_script("arguments[0].click();", wait.until(EC.presence_of_element_located((By.XPATH, "//a[.//img[contains(@src, 'icon_download.svg')]] | //img[contains(@src, 'icon_download.svg')]"))))
                                 
                                 arquivo_baixado = None
@@ -338,9 +367,9 @@ elif st.session_state.fase_app == "processando":
                                     with pdfplumber.open(arquivo_baixado) as pdf:
                                         paginas = pdf.pages if len(pdf.pages) <= 30 else pdf.pages[:15] + pdf.pages[-15:]
                                         texto_documento = "\n".join([page.extract_text() or "" for page in paginas])
-                                    dict_dados["Resumo Avançado (IA)"] = gerar_resumo_documento_ia(texto_documento, st.session_state.gemini_key) if texto_documento.strip() else "Documento sem OCR."
-                                else: dict_dados["Resumo Avançado (IA)"] = "Timeout no Download."
-                            except Exception: dict_dados["Resumo Avançado (IA)"] = "Documento Restrito."
+                                    dict_dados["Resumo Avançado (IA)"] = gerar_resumo_documento_ia(texto_documento, st.session_state.gemini_key) if texto_documento.strip() else "Documento sem texto rastreável."
+                                else: dict_dados["Resumo Avançado (IA)"] = "Timeout no Download Nuvem."
+                            except Exception: dict_dados["Resumo Avançado (IA)"] = "Documento Restrito ou Inexistente."
                             finally:
                                 while len(driver.window_handles) > 1: driver.switch_to.window(driver.window_handles[-1]); driver.close()
                                 driver.switch_to.window(janela_principal)
@@ -358,9 +387,10 @@ elif st.session_state.fase_app == "processando":
                         if driver.current_window_handle != janela_principal: driver.switch_to.window(janela_principal)
                         driver.execute_script("arguments[0].click();", wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@value='Voltar'] | //button[contains(text(), 'Voltar')]"))))
                     except: driver.execute_script("window.history.go(-1)")
-                    time.sleep(2); gc.collect() 
+                    time.sleep(2)
+                    gc.collect() # Limpeza forçada de memória RAM
                     
-        escreve_log("✨ Finalizando...", 100)
+        escreve_log("✨ Auditoria de Campo finalizada. Diagramando resultados...", 100)
         
     except Exception as e: 
         erro_fatal = str(e)
@@ -373,6 +403,7 @@ elif st.session_state.fase_app == "processando":
         st.session_state.fase_app = "erro" if erro_fatal and not dados_finais else "concluido"
         st.rerun()
 
+# FASE 3: EXIBIÇÃO DE RESULTADOS E DOWNLOAD AUTOMÁTICO
 elif st.session_state.fase_app == "concluido":
     st.success("🎉 Processamento concluído com sucesso!")
     df = pd.DataFrame(st.session_state.dados_auditoria)
@@ -387,6 +418,7 @@ elif st.session_state.fase_app == "concluido":
         st.markdown("### 📥 Seus Relatórios")
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
+        # --- EXCEL ---
         if st.session_state.cb_excel:
             output_excel = io.BytesIO()
             df.to_excel(output_excel, index=False)
@@ -395,12 +427,13 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_excel, "Auditoria_eProtocolo.xlsx", "application/vnd.ms-excel")
         
+        # --- PDF ---
         if st.session_state.cb_pdf:
             pdf = FPDF(); pdf.add_page(); pdf.set_font("Arial", 'B', 16); pdf.cell(0, 10, txt="Auditoria E-protocolo", ln=True, align='C')
             locais = {}
             for _, p in df.iterrows(): locais.setdefault(p['Local do Filtro'], []).append(p)
             for loc, group in locais.items():
-                pdf.ln(5); pdf.set_font("Arial", 'B', 11); pdf.set_fill_color(79, 70, 229); pdf.set_text_color(255, 255, 255); pdf.multi_cell(0, 8, limpa_pdf(f" SETOR: {loc} - ({len(group)} Processos)"), fill=True)
+                pdf.ln(5); pdf.set_font("Arial", 'B', 11); pdf.set_fill_color(79, 70, 229); pdf.set_text_color(255, 255, 255); pdf.multi_cell(0, 8, limpa_pdf(f" SETOR: {loc} - ({len(group)} Processos Pendentes)"), fill=True)
                 for p in group:
                     pdf.set_font("Arial", 'B', 10); pdf.set_text_color(204, 0, 0) if p.get('Dias no mesmo local', 0) >= st.session_state.alerta_dias else pdf.set_text_color(0, 0, 0)
                     pdf.ln(3); pdf.cell(0, 6, limpa_pdf(f"Protocolo: {p.get('Numero do Eprotocolo', '-')} | Dias Parado: {p.get('Dias no mesmo local', 0)}"), 0, 1)
@@ -414,6 +447,7 @@ elif st.session_state.fase_app == "concluido":
             if not st.session_state.downloads_feitos:
                 forcar_download_automatico(dados_pdf, "Auditoria_eProtocolo.pdf", "application/pdf")
         
+        # --- WORD ---
         if st.session_state.cb_word:
             doc = docx.Document(); doc.add_heading('Auditoria E-protocolo', 0).alignment = 1 
             for _, p in df.iterrows():
@@ -428,7 +462,7 @@ elif st.session_state.fase_app == "concluido":
 
         st.session_state.downloads_feitos = True 
     else:
-        st.warning("Nenhum processo atendeu aos critérios estabelecidos.")
+        st.warning("A varredura foi concluída, mas nenhum processo atendeu aos critérios de filtro exigidos.")
 
     st.markdown("<br><hr>", unsafe_allow_html=True)
     if st.button("🔄 Fazer Nova Auditoria", type="secondary", use_container_width=True):
@@ -436,9 +470,10 @@ elif st.session_state.fase_app == "concluido":
         st.session_state.dados_auditoria = []
         st.rerun()
 
+# FASE 4: TELA DE ERRO (Com Câmera de Diagnóstico)
 elif st.session_state.fase_app == "erro":
     st.error("❌ A auditoria foi interrompida prematuramente.")
-    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
+    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento. O portal do estado encerrou a conexão forçadamente.")
     st.code(st.session_state.ultimo_erro, language="text")
     
     foto_debug = st.session_state.get("debug_img", "")
