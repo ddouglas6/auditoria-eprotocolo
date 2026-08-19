@@ -117,16 +117,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. SIDEBAR - GESTÃO DE PERFIS (AGORA 100% ESTÁVEL)
+# 4. SIDEBAR - GESTÃO DE PERFIS E BOTÃO MOBILE
 # =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
     
     arquivo_perfil = st.file_uploader("📂 Importar Perfil (.json)", type="json", label_visibility="collapsed")
-    if arquivo_perfil is not None:
+    if arquivo_perfil:
         if st.session_state.get('id_arquivo_lido') != arquivo_perfil.file_id:
             try:
-                # Decodificação segura que funciona no Streamlit Cloud
                 conteudo = arquivo_perfil.getvalue()
                 dados_carregados = json.loads(conteudo.decode('utf-8'))
                 
@@ -138,9 +137,10 @@ with st.sidebar:
                     if k in st.session_state: 
                         st.session_state[k] = v
                 
-                # Atualiza a trava para não ler de novo
                 st.session_state['id_arquivo_lido'] = arquivo_perfil.file_id
                 st.success("✅ Perfil carregado com sucesso!")
+                time.sleep(1.0)
+                st.rerun()
             except Exception as e:
                 st.error(f"Erro ao ler JSON: {e}")
         
@@ -158,6 +158,21 @@ with st.sidebar:
     with st.expander("Parâmetros da I.A."):
         st.text_input("Palavra Gatilho:", key="txt_palavra_ia")
         st.selectbox("Prioridade:", ["🔴 ALTO", "🟡 MÉDIO", "🟢 BAIXO"], key="dd_prioridade_ia")
+
+    # BOTÃO EXCLUSIVO PARA O MENU LATERAL (Evita o clique fantasma no mobile)
+    st.divider()
+    if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True, key="btn_iniciar_sidebar"):
+        # Força conversão para string para evitar erros se o JSON for numérico
+        usr_val = str(st.session_state.get('usr', '')).strip()
+        pwd_val = str(st.session_state.get('pwd', '')).strip()
+        
+        if not usr_val or not pwd_val:
+            st.error("⚠️ Preencha seu CPF e Senha acima.")
+        else:
+            st.session_state.downloads_feitos = False
+            st.session_state.ultimo_erro = ""
+            st.session_state.fase_app = "processando"
+            st.rerun()
 
 # =====================================================================
 # 5. MÁQUINA DE ESTADOS DO APP
@@ -181,18 +196,19 @@ if st.session_state.fase_app == "inicio":
             st.radio("Organização Cronológica:", ["Decrescente", "Crescente"], key="ordem_relatorio")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True):
-        usr_val = st.session_state.get('usr', '').strip()
-        pwd_val = st.session_state.get('pwd', '').strip()
+    
+    # BOTÃO DA TELA PRINCIPAL (Para quem usa no PC)
+    if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True, key="btn_iniciar_main"):
+        usr_val = str(st.session_state.get('usr', '')).strip()
+        pwd_val = str(st.session_state.get('pwd', '')).strip()
         
         if not usr_val or not pwd_val:
             st.error("⚠️ Atenção: Preencha seu CPF e Senha no menu lateral esquerdo.")
-            st.stop()
-            
-        st.session_state.downloads_feitos = False
-        st.session_state.ultimo_erro = ""
-        st.session_state.fase_app = "processando"
-        st.rerun()
+        else:
+            st.session_state.downloads_feitos = False
+            st.session_state.ultimo_erro = ""
+            st.session_state.fase_app = "processando"
+            st.rerun()
 
 elif st.session_state.fase_app == "processando":
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -245,9 +261,9 @@ elif st.session_state.fase_app == "processando":
         
         escreve_log("🔑 Injetando credenciais...", 15)
         usr_f = wait.until(EC.visibility_of_element_located((By.ID, "attribute_central")))
-        usr_f.clear(); usr_f.send_keys(st.session_state.usr)
+        usr_f.clear(); usr_f.send_keys(str(st.session_state.usr))
         pwd_f = driver.find_element(By.ID, "password")
-        pwd_f.clear(); pwd_f.send_keys(st.session_state.pwd)
+        pwd_f.clear(); pwd_f.send_keys(str(st.session_state.pwd))
         driver.execute_script("arguments[0].click();", driver.find_element(By.ID, "btn-central-acessar"))
         
         escreve_log("⏳ Negociando Acesso com o Estado...", 20)
@@ -316,7 +332,8 @@ elif st.session_state.fase_app == "processando":
                             "Enviado em": data_envio, "Dias no mesmo local": dias_calculados
                         }
                         
-                        if st.session_state.cb_ia_risco: dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
+                        if st.session_state.cb_ia_risco: 
+                            dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
                         
                         if st.session_state.cb_resumo_ia:
                             escreve_log(f"      📥 Baixando anexo para Inteligência Artificial...")
