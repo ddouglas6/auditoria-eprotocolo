@@ -10,6 +10,7 @@ import requests
 import urllib3
 import gc
 import base64
+import hashlib
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -33,7 +34,7 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": "", "id_arquivo_lido": ""
+    "ultimo_erro": "", "id_arquivo_lido": "", "erro_validacao": ""
 }
 
 for k, v in chaves_padrao.items():
@@ -41,7 +42,27 @@ for k, v in chaves_padrao.items():
         st.session_state[k] = v
 
 # =====================================================================
-# 2. FUNÇÕES AUXILIARES
+# 2. SISTEMA DE CALLBACKS (Garantia Absoluta de Clique)
+# =====================================================================
+def disparar_auditoria():
+    """Este gatilho é executado antes da tela recarregar, blindando o clique."""
+    usr_val = str(st.session_state.usr).strip()
+    pwd_val = str(st.session_state.pwd).strip()
+    
+    if not usr_val or not pwd_val:
+        st.session_state.erro_validacao = "⚠️ Atenção: Preencha seu CPF e Senha no menu lateral esquerdo."
+    else:
+        st.session_state.erro_validacao = ""
+        st.session_state.downloads_feitos = False
+        st.session_state.ultimo_erro = ""
+        st.session_state.fase_app = "processando"
+
+def voltar_ao_inicio():
+    st.session_state.fase_app = "inicio"
+    st.session_state.dados_auditoria = []
+
+# =====================================================================
+# 3. FUNÇÕES AUXILIARES
 # =====================================================================
 def forcar_download_automatico(dados_bytes, nome_arquivo, tipo_mime):
     b64 = base64.b64encode(dados_bytes).decode()
@@ -81,7 +102,7 @@ def gerar_resumo_documento_ia(texto, chave_api):
     except Exception as e: return f"Erro IA: {str(e)[:40]}"
 
 # =====================================================================
-# 3. DESIGN E WAKE LOCK
+# 4. DESIGN E WAKE LOCK
 # =====================================================================
 st.markdown("""
     <style>
@@ -117,34 +138,39 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. SIDEBAR - GESTÃO DE PERFIS E BOTÃO MOBILE
+# 5. SIDEBAR - GESTÃO DE PERFIS (Leitura Silenciosa)
 # =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
     
     arquivo_perfil = st.file_uploader("📂 Importar Perfil (.json)", type="json", label_visibility="collapsed")
-    if arquivo_perfil:
-        if st.session_state.get('id_arquivo_lido') != arquivo_perfil.file_id:
+    if arquivo_perfil is not None:
+        conteudo_bytes = arquivo_perfil.getvalue()
+        hash_arquivo = hashlib.md5(conteudo_bytes).hexdigest()
+        
+        if st.session_state.get('id_arquivo_lido') != hash_arquivo:
             try:
-                conteudo = arquivo_perfil.getvalue()
-                dados_carregados = json.loads(conteudo.decode('utf-8'))
-                
+                dados_carregados = json.loads(conteudo_bytes.decode('utf-8'))
                 for k, v in dados_carregados.items():
-                    if k in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]:
+                    if k in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido", "erro_validacao"]:
                         continue
                     if k == "ordem_relatorio":
                         v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
+                        
                     if k in st.session_state: 
-                        st.session_state[k] = v
-                
-                st.session_state['id_arquivo_lido'] = arquivo_perfil.file_id
-                st.success("✅ Perfil carregado com sucesso!")
-                time.sleep(1.0)
-                st.rerun()
+                        # Força campos de texto sensíveis a serem salvos como String
+                        if k in ["usr", "pwd", "gemini_key", "txt_palavra_ia"]:
+                            st.session_state[k] = str(v)
+                        else:
+                            st.session_state[k] = v
+                            
+                st.session_state['id_arquivo_lido'] = hash_arquivo
+                st.toast("✅ Perfil carregado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao ler JSON: {e}")
         
-    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]}, indent=4)
+    chaves_para_exportar = [k for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido", "erro_validacao"]]
+    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_para_exportar}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
     
     st.divider(); st.markdown("### 🔐 Credenciais")
@@ -159,26 +185,20 @@ with st.sidebar:
         st.text_input("Palavra Gatilho:", key="txt_palavra_ia")
         st.selectbox("Prioridade:", ["🔴 ALTO", "🟡 MÉDIO", "🟢 BAIXO"], key="dd_prioridade_ia")
 
-    # BOTÃO EXCLUSIVO PARA O MENU LATERAL (Evita o clique fantasma no mobile)
     st.divider()
-    if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True, key="btn_iniciar_sidebar"):
-        # Força conversão para string para evitar erros se o JSON for numérico
-        usr_val = str(st.session_state.get('usr', '')).strip()
-        pwd_val = str(st.session_state.get('pwd', '')).strip()
-        
-        if not usr_val or not pwd_val:
-            st.error("⚠️ Preencha seu CPF e Senha acima.")
-        else:
-            st.session_state.downloads_feitos = False
-            st.session_state.ultimo_erro = ""
-            st.session_state.fase_app = "processando"
-            st.rerun()
+    # BOTÃO LATERAL COM CALLBACK
+    st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True, key="btn_iniciar_sidebar", on_click=disparar_auditoria)
 
 # =====================================================================
-# 5. MÁQUINA DE ESTADOS DO APP
+# 6. MÁQUINA DE ESTADOS DO APP
 # =====================================================================
 
 if st.session_state.fase_app == "inicio":
+    
+    if st.session_state.erro_validacao:
+        st.error(st.session_state.erro_validacao)
+        st.session_state.erro_validacao = "" # Limpa o erro após exibir
+        
     st.markdown("### ⚙️ Painel de Configurações")
     with st.container(border=True):
         col1, col2 = st.columns(2)
@@ -196,19 +216,8 @@ if st.session_state.fase_app == "inicio":
             st.radio("Organização Cronológica:", ["Decrescente", "Crescente"], key="ordem_relatorio")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # BOTÃO DA TELA PRINCIPAL (Para quem usa no PC)
-    if st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True, key="btn_iniciar_main"):
-        usr_val = str(st.session_state.get('usr', '')).strip()
-        pwd_val = str(st.session_state.get('pwd', '')).strip()
-        
-        if not usr_val or not pwd_val:
-            st.error("⚠️ Atenção: Preencha seu CPF e Senha no menu lateral esquerdo.")
-        else:
-            st.session_state.downloads_feitos = False
-            st.session_state.ultimo_erro = ""
-            st.session_state.fase_app = "processando"
-            st.rerun()
+    # BOTÃO CENTRAL COM CALLBACK (À prova de falhas)
+    st.button("🚀 INICIAR AUDITORIA", type="primary", use_container_width=True, key="btn_iniciar_main", on_click=disparar_auditoria)
 
 elif st.session_state.fase_app == "processando":
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -227,6 +236,7 @@ elif st.session_state.fase_app == "processando":
     download_dir = "/tmp/downloads_eprotocolo"
     os.makedirs(download_dir, exist_ok=True)
     
+    # OPÇÕES LIMPAS E DIRETAS DO CHROME (Login Validado)
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -452,15 +462,10 @@ elif st.session_state.fase_app == "concluido":
         st.warning("A varredura foi concluída, mas nenhum processo atendeu aos critérios de filtro exigidos.")
 
     st.markdown("<br><hr>", unsafe_allow_html=True)
-    if st.button("🔄 Fazer Nova Auditoria", type="secondary", use_container_width=True):
-        st.session_state.fase_app = "inicio"
-        st.session_state.dados_auditoria = []
-        st.rerun()
+    st.button("🔄 Fazer Nova Auditoria", type="secondary", use_container_width=True, on_click=voltar_ao_inicio)
 
 elif st.session_state.fase_app == "erro":
     st.error("❌ Ocorreu uma instabilidade no servidor e a coleta foi interrompida.")
     st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
     st.code(st.session_state.ultimo_erro, language="text")
-    if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
-        st.session_state.fase_app = "inicio"
-        st.rerun()
+    st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True, on_click=voltar_ao_inicio)
