@@ -33,7 +33,7 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": "", "id_arquivo_lido": ""
+    "ultimo_erro": "", "id_arquivo_lido": "" # <-- A trava de segurança voltou!
 }
 
 for k, v in chaves_padrao.items():
@@ -117,33 +117,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. SIDEBAR - GESTÃO DE PERFIS (AGORA COM BLINDAGEM ANTI-LOOP)
+# 4. SIDEBAR - GESTÃO DE PERFIS COM BLINDAGEM ANTI-LOOP
 # =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
     
     arquivo_perfil = st.file_uploader("📂 Importar Perfil (.json)", type="json", label_visibility="collapsed")
+    
+    # Lógica que impede o aplicativo de ficar lendo o arquivo infinitamente
     if arquivo_perfil:
-        # Verifica se este arquivo EXATO já foi lido para não entrar em loop infinito
         if st.session_state.get('id_arquivo_lido') != arquivo_perfil.file_id:
             try:
-                conteudo = arquivo_perfil.getvalue()
-                dados_carregados = json.loads(conteudo.decode('utf-8'))
-                
+                dados_carregados = json.load(arquivo_perfil)
                 for k, v in dados_carregados.items():
-                    # 🔴 PROTEÇÃO ABSOLUTA: Ignora a variável que causava o loop na tela final
                     if k in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]:
-                        continue
+                        continue # Ignora variáveis de sistema para não travar a máquina de estados
                     if k == "ordem_relatorio":
                         v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
                     if k in st.session_state: 
                         st.session_state[k] = v
                         
+                # Registra na memória que este arquivo já foi lido e processado
                 st.session_state['id_arquivo_lido'] = arquivo_perfil.file_id
-                st.success("Perfil carregado com sucesso!")
-                time.sleep(1)
+                st.success("Perfil carregado! A página vai atualizar.")
+                time.sleep(1.0)
                 st.rerun()
-            except Exception:
+            except: 
                 st.error("Erro ao ler o arquivo JSON.")
         
     json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]}, indent=4)
@@ -213,6 +212,7 @@ elif st.session_state.fase_app == "processando":
     download_dir = "/tmp/downloads_eprotocolo"
     os.makedirs(download_dir, exist_ok=True)
     
+    # OPÇÕES LIMPAS E DIRETAS (Login sem falhas)
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -434,6 +434,7 @@ elif st.session_state.fase_app == "concluido":
                 forcar_download_automatico(dados_word, "Auditoria_eProtocolo.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
         st.session_state.downloads_feitos = True 
+
     else:
         st.warning("A varredura foi concluída, mas nenhum processo atendeu aos critérios de filtro exigidos.")
 
@@ -444,8 +445,8 @@ elif st.session_state.fase_app == "concluido":
         st.rerun()
 
 elif st.session_state.fase_app == "erro":
-    st.error("❌ A auditoria foi interrompida prematuramente.")
-    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
+    st.error("❌ Ocorreu uma instabilidade no servidor e a coleta foi interrompida.")
+    st.info("💡 **Diagnóstico do Sistema:**")
     st.code(st.session_state.ultimo_erro, language="text")
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
