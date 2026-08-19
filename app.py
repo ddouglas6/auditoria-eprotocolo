@@ -33,7 +33,7 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": ""
+    "ultimo_erro": "", "id_arquivo_lido": ""
 }
 
 for k, v in chaves_padrao.items():
@@ -117,26 +117,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. SIDEBAR - GESTÃO DE PERFIS
+# 4. SIDEBAR - GESTÃO DE PERFIS (AGORA COM BLINDAGEM ANTI-LOOP)
 # =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
     
     arquivo_perfil = st.file_uploader("📂 Importar Perfil (.json)", type="json", label_visibility="collapsed")
     if arquivo_perfil:
-        try:
-            dados_carregados = json.load(arquivo_perfil)
-            for k, v in dados_carregados.items():
-                if k == "ordem_relatorio":
-                    v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
-                if k in st.session_state: 
-                    st.session_state[k] = v
-            st.success("Perfil carregado! A página vai atualizar.")
-            time.sleep(1.5)
-            st.rerun()
-        except: st.error("Erro ao ler o arquivo JSON.")
+        # Verifica se este arquivo EXATO já foi lido para não entrar em loop infinito
+        if st.session_state.get('id_arquivo_lido') != arquivo_perfil.file_id:
+            try:
+                conteudo = arquivo_perfil.getvalue()
+                dados_carregados = json.loads(conteudo.decode('utf-8'))
+                
+                for k, v in dados_carregados.items():
+                    # 🔴 PROTEÇÃO ABSOLUTA: Ignora a variável que causava o loop na tela final
+                    if k in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]:
+                        continue
+                    if k == "ordem_relatorio":
+                        v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
+                    if k in st.session_state: 
+                        st.session_state[k] = v
+                        
+                st.session_state['id_arquivo_lido'] = arquivo_perfil.file_id
+                st.success("Perfil carregado com sucesso!")
+                time.sleep(1)
+                st.rerun()
+            except Exception:
+                st.error("Erro ao ler o arquivo JSON.")
         
-    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro"]}, indent=4)
+    json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
     
     st.divider(); st.markdown("### 🔐 Credenciais")
@@ -203,7 +213,6 @@ elif st.session_state.fase_app == "processando":
     download_dir = "/tmp/downloads_eprotocolo"
     os.makedirs(download_dir, exist_ok=True)
     
-    # OPÇÕES LIMPAS E DIRETAS (Retorno ao básico que funcionava o Login)
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
