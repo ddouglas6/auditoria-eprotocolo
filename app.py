@@ -33,7 +33,7 @@ chaves_padrao = {
     "cb_somente_nao_atribuidos": False, "cb_historico": False, "cb_pdf": True, "cb_excel": True, 
     "cb_word": False, "ordem_relatorio": "Decrescente",
     "fase_app": "inicio", "dados_auditoria": [], "downloads_feitos": False,
-    "ultimo_erro": "", "id_arquivo_lido": "" # <-- A trava de segurança voltou!
+    "ultimo_erro": "", "id_arquivo_lido": ""
 }
 
 for k, v in chaves_padrao.items():
@@ -117,33 +117,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =====================================================================
-# 4. SIDEBAR - GESTÃO DE PERFIS COM BLINDAGEM ANTI-LOOP
+# 4. SIDEBAR - GESTÃO DE PERFIS (AGORA 100% ESTÁVEL)
 # =====================================================================
 with st.sidebar:
     st.markdown("### 💾 Seu Perfil (Local)")
     
     arquivo_perfil = st.file_uploader("📂 Importar Perfil (.json)", type="json", label_visibility="collapsed")
-    
-    # Lógica que impede o aplicativo de ficar lendo o arquivo infinitamente
-    if arquivo_perfil:
+    if arquivo_perfil is not None:
         if st.session_state.get('id_arquivo_lido') != arquivo_perfil.file_id:
             try:
-                dados_carregados = json.load(arquivo_perfil)
+                # Decodificação segura que funciona no Streamlit Cloud
+                conteudo = arquivo_perfil.getvalue()
+                dados_carregados = json.loads(conteudo.decode('utf-8'))
+                
                 for k, v in dados_carregados.items():
                     if k in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]:
-                        continue # Ignora variáveis de sistema para não travar a máquina de estados
+                        continue
                     if k == "ordem_relatorio":
                         v = "Decrescente" if "antigos" in str(v).lower() or "Decrescente" in str(v) else "Crescente"
                     if k in st.session_state: 
                         st.session_state[k] = v
-                        
-                # Registra na memória que este arquivo já foi lido e processado
+                
+                # Atualiza a trava para não ler de novo
                 st.session_state['id_arquivo_lido'] = arquivo_perfil.file_id
-                st.success("Perfil carregado! A página vai atualizar.")
-                time.sleep(1.0)
-                st.rerun()
-            except: 
-                st.error("Erro ao ler o arquivo JSON.")
+                st.success("✅ Perfil carregado com sucesso!")
+            except Exception as e:
+                st.error(f"Erro ao ler JSON: {e}")
         
     json_perfil = json.dumps({k: st.session_state[k] for k in chaves_padrao.keys() if k not in ["fase_app", "dados_auditoria", "downloads_feitos", "ultimo_erro", "id_arquivo_lido"]}, indent=4)
     st.download_button("💾 Baixar Perfil Atual", json_perfil, "meu_perfil_eprotocolo.json", "application/json", use_container_width=True)
@@ -212,7 +211,6 @@ elif st.session_state.fase_app == "processando":
     download_dir = "/tmp/downloads_eprotocolo"
     os.makedirs(download_dir, exist_ok=True)
     
-    # OPÇÕES LIMPAS E DIRETAS (Login sem falhas)
     options = Options()
     options.add_argument('--headless=new')
     options.add_argument('--no-sandbox')
@@ -318,8 +316,7 @@ elif st.session_state.fase_app == "processando":
                             "Enviado em": data_envio, "Dias no mesmo local": dias_calculados
                         }
                         
-                        if st.session_state.cb_ia_risco: 
-                            dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
+                        if st.session_state.cb_ia_risco: dict_dados["Grau de Risco (IA)"] = analisar_risco(dict_dados["Detalhamento"], st.session_state.txt_palavra_ia, st.session_state.dd_prioridade_ia)
                         
                         if st.session_state.cb_resumo_ia:
                             escreve_log(f"      📥 Baixando anexo para Inteligência Artificial...")
@@ -434,7 +431,6 @@ elif st.session_state.fase_app == "concluido":
                 forcar_download_automatico(dados_word, "Auditoria_eProtocolo.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
         st.session_state.downloads_feitos = True 
-
     else:
         st.warning("A varredura foi concluída, mas nenhum processo atendeu aos critérios de filtro exigidos.")
 
@@ -446,7 +442,7 @@ elif st.session_state.fase_app == "concluido":
 
 elif st.session_state.fase_app == "erro":
     st.error("❌ Ocorreu uma instabilidade no servidor e a coleta foi interrompida.")
-    st.info("💡 **Diagnóstico do Sistema:**")
+    st.info("💡 **Diagnóstico do Sistema:** Abaixo está a causa exata do travamento.")
     st.code(st.session_state.ultimo_erro, language="text")
     if st.button("🔄 Voltar e Tentar Novamente", type="secondary", use_container_width=True):
         st.session_state.fase_app = "inicio"
