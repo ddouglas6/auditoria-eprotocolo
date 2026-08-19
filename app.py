@@ -8,7 +8,6 @@ import json
 import os
 import requests
 import urllib3
-import base64
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -291,23 +290,28 @@ with st.sidebar:
     st.markdown("### 💾 Gestão de Perfil")
     arquivo_importado = st.file_uploader("Importar Perfil (.json)", type="json", label_visibility="collapsed")
     
-    # Processa o arquivo silenciosamente, convertendo CPF e Senha para TEXTO (string)
+    # VACINA E PROTEÇÃO DE IMPORTAÇÃO: Previne o erro "Value is not in iterable"
     if arquivo_importado and st.session_state.arquivo_importado_id != arquivo_importado.file_id:
         try:
             dados_lidos = json.loads(arquivo_importado.getvalue().decode('utf-8'))
             for chave, valor in dados_lidos.items():
                 if chave in PARAMETROS_PADRAO:
-                    # Trava de Segurança: Força as credenciais e IA a serem texto
+                    # TRADUTOR DO FORMATO ANTIGO
+                    if chave == "ordem_relatorio":
+                        valor = "Decrescente" if "antigos" in str(valor).lower() or "decrescente" in str(valor).lower() else "Crescente"
+                    
                     if chave in ["usr", "pwd", "gemini_key", "txt_palavra_ia"]:
                         st.session_state[chave] = str(valor)
                     else:
                         st.session_state[chave] = valor
-                        
+            
             st.session_state.arquivo_importado_id = arquivo_importado.file_id
-            st.success("Perfil lido com sucesso!")
-        except Exception: pass
+            st.success("Perfil carregado!")
+            time.sleep(1)
+            st.rerun()
+        except Exception:
+            st.error("Falha ao ler o arquivo.")
 
-    # Exportar perfil
     dados_exportacao = {k: st.session_state[k] for k in PARAMETROS_PADRAO.keys()}
     st.download_button("💾 Exportar Configurações", json.dumps(dados_exportacao, indent=4), "perfil_eprotocolo.json", "application/json", use_container_width=True)
     
@@ -325,8 +329,8 @@ with st.sidebar:
         st.text_input("Palavra-Chave Crítica:", key="txt_palavra_ia")
         st.selectbox("Nível de Alerta:", ["🔴 ALTO", "🟡 MÉDIO", "🟢 BAIXO"], key="dd_prioridade_ia")
 
-    # BOTÃO PARA CELULAR: Fica no menu para evitar "clique fantasma"
     st.divider()
+    # BOTÃO LATERAL COM CALLBACK MOBILE
     st.button("🚀 INICIAR VARREDURA (Mobile)", type="primary", use_container_width=True, on_click=acionar_auditoria_callback, key="btn_mobile")
 
 # ----------------- FLUXO DE TELAS PRINCIPAIS -----------------
@@ -354,7 +358,7 @@ if st.session_state.app_fase == "configuracao":
     st.button("🚀 INICIAR VARREDURA", type="primary", use_container_width=True, on_click=acionar_auditoria_callback, key="btn_pc")
 
 elif st.session_state.app_fase == "processando":
-    st.info("⚠️ O Motor Selenium está rodando em plano de fundo. Deixe a tela ligada.")
+    st.info("⚠️ O Motor Selenium está rodando em plano de fundo. Não atualize a página.")
     barra_progresso = st.progress(0)
     caixa_texto_logs = st.empty()
     historico_logs = []
@@ -382,7 +386,7 @@ elif st.session_state.app_fase == "sucesso":
     
     df = pd.DataFrame(st.session_state.resultados)
     if len(df) == 0:
-        st.warning("A busca ocorreu perfeitamente, mas nenhum protocolo atendeu aos seus filtros.")
+        st.warning("A busca ocorreu perfeitamente, mas nenhum protocolo atendeu aos seus filtros de dias ou não-atribuição.")
     else:
         crescente = (st.session_state.ordem_relatorio == "Crescente")
         df = df.sort_values(by=['Setor', 'Dias Parado'], ascending=[True, crescente])
